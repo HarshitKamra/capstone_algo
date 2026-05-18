@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 5
+names: ['CTA', 'Headline', 'Price', 'Product', 'logo']
+
+roboflow:
+  workspace: harshits-workspace-w8qhs
+  project: harshits-workspace-w8qhs
+  version: dataset
+  license: Private
+  url: https://app.roboflow.com/harshits-workspace-w8qhs/harshits-workspace-w8qhs/dataset
