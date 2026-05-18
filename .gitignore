@@ -1,8 +1,36 @@
-# Ignore dataset training files
-Capstone.yolov8/train/
-
-# Ignore local VS Code settings
-.vscode/
-
-# Byte-compiled / cache
+# Python cache / bytecode
 __pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Local editor settings
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Keep dataset archive tracked even if a global ignore hides zip files
+!Capstone.yolov8.zip
+
+# Tobii Glasses raw exports and generated reports
+tobii_exports/
+raw_data/
+exports/
+reports/
+outputs/
+*.tsv
+*.csv
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
