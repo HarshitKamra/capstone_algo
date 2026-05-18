@@ -1,0 +1,8 @@
+# Ignore dataset training files
+Capstone.yolov8/train/
+
+# Ignore local VS Code settings
+.vscode/
+
+# Byte-compiled / cache
+__pycache__/
