@@ -1130,8 +1130,13 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       font-family: Arial, Helvetica, sans-serif;
       color: var(--ink);
       background: #ffffff;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
     }}
     header {{
+      flex-shrink: 0;
       position: sticky;
       top: 0;
       z-index: 20;
@@ -1169,6 +1174,9 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       grid-template-columns: minmax(260px, 1fr) 300px;
       gap: 18px;
       padding: 18px;
+      flex-grow: 1;
+      overflow: hidden;
+      min-height: 0;
     }}
     button {{
       min-height: 36px;
@@ -1195,19 +1203,24 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
     }}
     .stage {{
       display: grid;
-      place-items: start center;
-      min-height: calc(100vh - 92px);
-      overflow: auto;
+      place-items: center center;
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
     }}
     .poster-wrap {{
       position: relative;
-      max-width: min(100%, 980px);
+      max-width: 100%;
+      max-height: 100%;
       border: 1px solid var(--line);
       background: #f2f4f7;
+      display: inline-block;
     }}
     #poster {{
       display: block;
-      width: 100%;
+      max-width: 100%;
+      max-height: calc(100vh - 120px);
+      width: auto;
       height: auto;
       user-select: none;
     }}
@@ -1243,6 +1256,8 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
     aside {{
       border-left: 1px solid var(--line);
       padding-left: 18px;
+      overflow-y: auto;
+      height: 100%;
     }}
     .panel {{
       padding: 14px;
