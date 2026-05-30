@@ -27,6 +27,7 @@ raw_data/
 exports/
 reports/
 outputs/
+webgazer_session*.html
 *.tsv
 *.csv
 

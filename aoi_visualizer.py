@@ -1,7 +1,11 @@
 import argparse
+import base64
 import csv
+import html
+import json
 import os
 import re
+from urllib.parse import quote
 
 import cv2
 import matplotlib.pyplot as plt
@@ -47,7 +51,7 @@ attention_scores = {}
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Offline Tobii Glasses poster PES analyzer"
+        description="Poster PES analyzer with Tobii export or WebGazer capture support"
     )
     parser.add_argument(
         "--gaze-file",
@@ -68,6 +72,30 @@ def parse_args():
         action="store_true",
         help="Skip showing the AOI preview window after analysis.",
     )
+    parser.add_argument(
+        "--webgazer-session",
+        metavar="HTML_PATH",
+        help=(
+            "Generate a browser-based WebGazer capture page for the selected "
+            "poster and exit. The page exports a CSV that can be analyzed with "
+            "--gaze-file."
+        ),
+    )
+    parser.add_argument(
+        "--webgazer-gallery",
+        metavar="HTML_PATH",
+        help=(
+            "Generate one browser-based WebGazer page with a poster chooser "
+            "for every labelled poster in the dataset."
+        ),
+    )
+    parser.add_argument(
+        "--poster",
+        help=(
+            "Poster filename to use without the interactive selector. Useful "
+            "with --webgazer-session."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -86,18 +114,33 @@ def list_available_posters(folder_path):
     return sorted(posters)
 
 
-def load_poster(folder_path):
+def load_poster(folder_path, requested_poster=None):
     """Let the user select a poster and return its filename plus image array."""
     posters = list_available_posters(folder_path)
 
     if not posters:
         raise FileNotFoundError("No supported poster images found.")
 
+    lower_to_original = {name.lower(): name for name in posters}
+
+    if requested_poster:
+        selected_poster = lower_to_original.get(requested_poster.lower())
+        if not selected_poster:
+            raise FileNotFoundError(
+                f"Poster not found: {requested_poster}. Choose one from {folder_path}."
+            )
+        poster_full_path = os.path.join(folder_path, selected_poster)
+        image = read_image(poster_full_path)
+
+        if image is None:
+            raise ValueError(f"Unable to read selected poster: {selected_poster}")
+
+        print(f"Selected Poster: {selected_poster}")
+        return selected_poster, image
+
     print("Available Posters:")
     for index, poster_name in enumerate(posters, start=1):
         print(f"{index}. {poster_name}")
-
-    lower_to_original = {name.lower(): name for name in posters}
 
     while True:
         selection = input("\nSelect poster by number OR type filename: ").strip()
@@ -1027,6 +1070,815 @@ def show_aoi_preview(preview_image):
     plt.show()
 
 
+def get_image_data_uri(file_path):
+    """Return a browser-friendly data URI for the selected poster."""
+    extension = os.path.splitext(file_path)[1].lower()
+    mime_types = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+        ".avif": "image/avif",
+    }
+    mime_type = mime_types.get(extension, "application/octet-stream")
+
+    with open(file_path, "rb") as file:
+        encoded = base64.b64encode(file.read()).decode("ascii")
+
+    return f"data:{mime_type};base64,{encoded}"
+
+
+def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poster_options=None):
+    """Build a self-contained WebGazer page that exports analyzer-ready CSV."""
+    height, width = image_shape[:2]
+    if poster_options is None:
+        poster_options = [
+            {
+                "name": poster_name,
+                "imageSrc": poster_image_src,
+                "width": width,
+                "height": height,
+                "aois": [
+                    {"label": label, "x1": x1, "y1": y1, "x2": x2, "y2": y2}
+                    for label, x1, y1, x2, y2 in boxes
+                ],
+            }
+        ]
+
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebGazer Capture</title>
+  <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
+  <style>
+    :root {{
+      color-scheme: light;
+      --ink: #172026;
+      --muted: #5f6b73;
+      --line: #d8dee4;
+      --panel: #f7f8fa;
+      --accent: #0f766e;
+      --danger: #b42318;
+    }}
+    * {{
+      box-sizing: border-box;
+    }}
+    body {{
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: #ffffff;
+    }}
+    header {{
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.96);
+    }}
+    h1 {{
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+    }}
+    .header-left {{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }}
+    #posterSelect {{
+      min-height: 36px;
+      max-width: min(48vw, 520px);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 10px;
+      background: #ffffff;
+      color: var(--ink);
+      font: inherit;
+    }}
+    main {{
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) 300px;
+      gap: 18px;
+      padding: 18px;
+    }}
+    button {{
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 12px;
+      background: #ffffff;
+      color: var(--ink);
+      font-weight: 700;
+      cursor: pointer;
+    }}
+    button.primary {{
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #ffffff;
+    }}
+    button.danger {{
+      border-color: var(--danger);
+      color: var(--danger);
+    }}
+    button:disabled {{
+      opacity: 0.5;
+      cursor: not-allowed;
+    }}
+    .stage {{
+      display: grid;
+      place-items: start center;
+      min-height: calc(100vh - 92px);
+      overflow: auto;
+    }}
+    .poster-wrap {{
+      position: relative;
+      max-width: min(100%, 980px);
+      border: 1px solid var(--line);
+      background: #f2f4f7;
+    }}
+    #poster {{
+      display: block;
+      width: 100%;
+      height: auto;
+      user-select: none;
+    }}
+    .aoi {{
+      position: absolute;
+      border: 2px solid #12b76a;
+      pointer-events: none;
+    }}
+    .aoi span {{
+      position: absolute;
+      left: -2px;
+      top: -24px;
+      min-width: 48px;
+      padding: 3px 6px;
+      background: #12b76a;
+      color: #06291b;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }}
+    #gazeDot {{
+      position: fixed;
+      z-index: 30;
+      width: 14px;
+      height: 14px;
+      margin: -7px 0 0 -7px;
+      border-radius: 50%;
+      background: #e31b54;
+      box-shadow: 0 0 0 3px rgba(227, 27, 84, 0.2);
+      pointer-events: none;
+      transform: translate(-100px, -100px);
+    }}
+    aside {{
+      border-left: 1px solid var(--line);
+      padding-left: 18px;
+    }}
+    .panel {{
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }}
+    .panel + .panel {{
+      margin-top: 12px;
+    }}
+    .metric {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 7px 0;
+      border-bottom: 1px solid var(--line);
+      font-size: 14px;
+    }}
+    .metric:last-child {{
+      border-bottom: 0;
+    }}
+    .muted {{
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }}
+    #cameraPanel {{
+      min-height: 190px;
+      overflow: hidden;
+    }}
+    #cameraMount {{
+      display: grid;
+      place-items: center;
+      min-height: 168px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #101828;
+    }}
+    #cameraMount #webgazerVideoContainer {{
+      position: relative !important;
+      inset: auto !important;
+      width: 260px !important;
+      height: 195px !important;
+      max-width: 100% !important;
+      overflow: hidden !important;
+      border-radius: 6px;
+    }}
+    #cameraMount #webgazerVideoFeed,
+    #cameraMount #webgazerFaceOverlay,
+    #cameraMount #webgazerFaceFeedbackBox {{
+      width: 260px !important;
+      height: 195px !important;
+      max-width: 100% !important;
+    }}
+    .calibration-layer {{
+      position: fixed;
+      inset: 0;
+      z-index: 2147483647;
+      cursor: crosshair;
+      touch-action: manipulation;
+    }}
+    .calibration-target {{
+      position: absolute;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: #f79009;
+      box-shadow: 0 0 0 10px rgba(247, 144, 9, 0.22);
+      pointer-events: none;
+    }}
+    .calibration-target.accuracy {{
+      background: #1570ef;
+      box-shadow: 0 0 0 10px rgba(21, 112, 239, 0.22);
+    }}
+    @media (max-width: 860px) {{
+      main {{
+        grid-template-columns: 1fr;
+      }}
+      aside {{
+        border-left: 0;
+        padding-left: 0;
+      }}
+    }}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <h1 id="posterTitle">{html.escape(poster_name)}</h1>
+      <select id="posterSelect" aria-label="Choose poster"></select>
+    </div>
+    <div>
+      <button id="startBtn" class="primary">Start</button>
+      <button id="stopBtn" class="danger" disabled>Stop</button>
+      <button id="downloadBtn" disabled>Download CSV</button>
+    </div>
+  </header>
+  <main>
+    <section class="stage">
+      <div id="posterWrap" class="poster-wrap">
+        <img id="poster" src="{poster_image_src}" alt="{html.escape(poster_name)}">
+      </div>
+    </section>
+    <aside>
+      <div id="cameraPanel" class="panel">
+        <div id="cameraMount">
+          <span class="muted">Camera preview appears here after Start.</span>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="metric"><strong>Status</strong><span id="status">Ready</span></div>
+        <div class="metric"><strong>Samples</strong><span id="sampleCount">0</span></div>
+        <div class="metric"><strong>Current AOI</strong><span id="currentAoi">-</span></div>
+        <div class="metric"><strong>Accuracy</strong><span id="accuracyStatus">-</span></div>
+      </div>
+      <div class="panel muted">
+        Choose a poster, click Start, allow camera access, then click each orange calibration dot
+        until it disappears. Then click the blue accuracy dots. Recording starts
+        after the accuracy check.
+      </div>
+      <div class="panel muted">
+        The exported CSV contains poster pixel coordinates and AOI labels, so run
+        the Python analyzer with <strong>--gaze-file</strong> and this poster.
+      </div>
+    </aside>
+  </main>
+  <div id="gazeDot"></div>
+
+  <script>
+    const POSTERS = {json.dumps(poster_options)};
+    const SAMPLE_INTERVAL_MS = 80;
+    const CALIBRATION_POINTS = [
+      [0.12, 0.16], [0.5, 0.16], [0.88, 0.16],
+      [0.12, 0.5], [0.5, 0.5], [0.88, 0.5],
+      [0.12, 0.84], [0.5, 0.84], [0.88, 0.84]
+    ];
+
+    const poster = document.getElementById("poster");
+    const posterWrap = document.getElementById("posterWrap");
+    const posterTitle = document.getElementById("posterTitle");
+    const posterSelect = document.getElementById("posterSelect");
+    const cameraMount = document.getElementById("cameraMount");
+    const gazeDot = document.getElementById("gazeDot");
+    const statusEl = document.getElementById("status");
+    const sampleCountEl = document.getElementById("sampleCount");
+    const currentAoiEl = document.getElementById("currentAoi");
+    const accuracyStatusEl = document.getElementById("accuracyStatus");
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const downloadBtn = document.getElementById("downloadBtn");
+
+    let samples = [];
+    let currentPoster = POSTERS[0];
+    let POSTER_NAME = currentPoster.name;
+    let IMAGE_WIDTH = currentPoster.width;
+    let IMAGE_HEIGHT = currentPoster.height;
+    let AOIS = currentPoster.aois;
+    let tracking = false;
+    let lastSampleAt = 0;
+    let calibrationIndex = 0;
+    let accuracyIndex = 0;
+    let calibrationLayer = null;
+    let calibrationTarget = null;
+    let calibrationPoint = null;
+    let calibrationMode = "calibration";
+    let lastCalibrationAdvanceAt = 0;
+    let lastPrediction = null;
+    let accuracyErrors = [];
+
+    function setStatus(text) {{
+      statusEl.textContent = text;
+    }}
+
+    function resetSessionState() {{
+      samples = [];
+      tracking = false;
+      calibrationIndex = 0;
+      accuracyIndex = 0;
+      accuracyErrors = [];
+      sampleCountEl.textContent = "0";
+      currentAoiEl.textContent = "-";
+      accuracyStatusEl.textContent = "-";
+      downloadBtn.disabled = true;
+      finishCalibrationLayer();
+      setStatus("Ready");
+    }}
+
+    function loadPosterByIndex(index) {{
+      currentPoster = POSTERS[index];
+      POSTER_NAME = currentPoster.name;
+      IMAGE_WIDTH = currentPoster.width;
+      IMAGE_HEIGHT = currentPoster.height;
+      AOIS = currentPoster.aois;
+      posterTitle.textContent = POSTER_NAME;
+      poster.src = currentPoster.imageSrc;
+      poster.alt = POSTER_NAME;
+      resetSessionState();
+      renderAois();
+    }}
+
+    function populatePosterSelect() {{
+      POSTERS.forEach((posterOption, index) => {{
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = posterOption.name;
+        posterSelect.appendChild(option);
+      }});
+      posterSelect.value = "0";
+    }}
+
+    function renderAois() {{
+      document.querySelectorAll(".aoi").forEach((node) => node.remove());
+      const rect = poster.getBoundingClientRect();
+      const scaleX = rect.width / IMAGE_WIDTH;
+      const scaleY = rect.height / IMAGE_HEIGHT;
+
+      AOIS.forEach((aoi) => {{
+        const box = document.createElement("div");
+        box.className = "aoi";
+        box.style.left = `${{aoi.x1 * scaleX}}px`;
+        box.style.top = `${{aoi.y1 * scaleY}}px`;
+        box.style.width = `${{(aoi.x2 - aoi.x1) * scaleX}}px`;
+        box.style.height = `${{(aoi.y2 - aoi.y1) * scaleY}}px`;
+        box.innerHTML = `<span>${{aoi.label}}</span>`;
+        posterWrap.appendChild(box);
+      }});
+    }}
+
+    function attachCameraPreview() {{
+      const container = document.getElementById("webgazerVideoContainer");
+      if (!container || container.parentElement === cameraMount) {{
+        return;
+      }}
+
+      cameraMount.replaceChildren(container);
+      container.style.position = "relative";
+      container.style.top = "auto";
+      container.style.left = "auto";
+      container.style.width = "260px";
+      container.style.height = "195px";
+      container.style.zIndex = "1";
+    }}
+
+    function viewportToPosterPoint(x, y) {{
+      const rect = poster.getBoundingClientRect();
+      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {{
+        return null;
+      }}
+
+      return {{
+        x: Math.round(((x - rect.left) / rect.width) * (IMAGE_WIDTH - 1)),
+        y: Math.round(((y - rect.top) / rect.height) * (IMAGE_HEIGHT - 1))
+      }};
+    }}
+
+    function getAoiHit(point) {{
+      if (!point) {{
+        return "";
+      }}
+
+      const hits = AOIS
+        .filter((aoi) => (
+          point.x >= aoi.x1 && point.x <= aoi.x2 &&
+          point.y >= aoi.y1 && point.y <= aoi.y2
+        ))
+        .map((aoi) => aoi.label);
+
+      return hits.join("|");
+    }}
+
+    function recordTrainingPoint(screenX, screenY, repeats = 6) {{
+      if (!webgazer.recordScreenPosition) {{
+        return;
+      }}
+
+      for (let index = 0; index < repeats; index += 1) {{
+        webgazer.recordScreenPosition(screenX, screenY, "click");
+      }}
+    }}
+
+    function finishCalibrationLayer() {{
+      if (calibrationLayer) {{
+        calibrationLayer.remove();
+        calibrationLayer = null;
+        calibrationTarget = null;
+      }}
+      calibrationPoint = null;
+    }}
+
+    function updateAccuracyStatus() {{
+      if (!accuracyErrors.length) {{
+        accuracyStatusEl.textContent = "-";
+        return;
+      }}
+
+      const averageError = accuracyErrors.reduce((sum, value) => sum + value, 0) / accuracyErrors.length;
+      accuracyStatusEl.textContent = `${{Math.round(averageError)}} px avg`;
+    }}
+
+    function recordAccuracyClick(screenX, screenY) {{
+      if (lastPrediction) {{
+        const error = Math.hypot(lastPrediction.x - screenX, lastPrediction.y - screenY);
+        accuracyErrors.push(error);
+        updateAccuracyStatus();
+      }}
+    }}
+
+    function startRecording() {{
+      finishCalibrationLayer();
+      tracking = true;
+      setStatus("Recording");
+    }}
+
+    function advanceCalibration(event) {{
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (!calibrationPoint) {{
+        return;
+      }}
+
+      const now = performance.now();
+      if (now - lastCalibrationAdvanceAt < 250) {{
+        return;
+      }}
+      lastCalibrationAdvanceAt = now;
+
+      const [screenX, screenY] = calibrationPoint;
+      recordTrainingPoint(screenX, screenY);
+
+      if (calibrationMode === "accuracy") {{
+        recordAccuracyClick(screenX, screenY);
+        accuracyIndex += 1;
+        showAccuracyPoint();
+        return;
+      }}
+
+      calibrationIndex += 1;
+      showCalibrationPoint();
+    }}
+
+    function ensureCalibrationLayer() {{
+      if (calibrationLayer) {{
+        return;
+      }}
+
+      calibrationLayer = document.createElement("div");
+      calibrationLayer.className = "calibration-layer";
+      calibrationLayer.setAttribute("aria-label", "Calibration area");
+
+      calibrationTarget = document.createElement("div");
+      calibrationTarget.className = "calibration-target";
+      calibrationLayer.appendChild(calibrationTarget);
+
+      ["pointerdown", "mousedown", "touchstart", "click"].forEach((eventName) => {{
+        calibrationLayer.addEventListener(eventName, advanceCalibration, true);
+      }});
+
+      document.body.appendChild(calibrationLayer);
+    }}
+
+    function handleCalibrationKey(event) {{
+      if (!calibrationLayer || ![" ", "Enter"].includes(event.key)) {{
+        return;
+      }}
+
+      advanceCalibration(event);
+    }}
+
+    function moveCalibrationTarget(point, isAccuracy = false) {{
+      ensureCalibrationLayer();
+      calibrationPoint = point;
+      calibrationTarget.className = isAccuracy
+        ? "calibration-target accuracy"
+        : "calibration-target";
+      calibrationTarget.style.left = `${{point[0] - 17}}px`;
+      calibrationTarget.style.top = `${{point[1] - 17}}px`;
+    }}
+
+    function showAccuracyPoint() {{
+      calibrationMode = "accuracy";
+
+      if (accuracyIndex >= CALIBRATION_POINTS.length) {{
+        startRecording();
+        return;
+      }}
+
+      const [xRatio, yRatio] = CALIBRATION_POINTS[accuracyIndex];
+      moveCalibrationTarget([
+        Math.round(window.innerWidth * xRatio),
+        Math.round(window.innerHeight * yRatio)
+      ], true);
+      setStatus(`Accuracy ${{accuracyIndex + 1}}/${{CALIBRATION_POINTS.length}}`);
+    }}
+
+    function showCalibrationPoint() {{
+      calibrationMode = "calibration";
+
+      if (calibrationIndex >= CALIBRATION_POINTS.length) {{
+        if (calibrationTarget) {{
+          calibrationTarget.className = "calibration-target accuracy";
+        }}
+        accuracyIndex = 0;
+        setStatus("Accuracy check");
+        window.setTimeout(showAccuracyPoint, 300);
+        return;
+      }}
+
+      const [xRatio, yRatio] = CALIBRATION_POINTS[calibrationIndex];
+      moveCalibrationTarget([
+        Math.round(window.innerWidth * xRatio),
+        Math.round(window.innerHeight * yRatio)
+      ]);
+      setStatus(`Calibrating ${{calibrationIndex + 1}}/${{CALIBRATION_POINTS.length}}`);
+    }}
+
+    async function startTracking() {{
+      samples = [];
+      calibrationIndex = 0;
+      accuracyIndex = 0;
+      accuracyErrors = [];
+      sampleCountEl.textContent = "0";
+      currentAoiEl.textContent = "-";
+      accuracyStatusEl.textContent = "-";
+      downloadBtn.disabled = true;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      posterSelect.disabled = true;
+      setStatus("Starting camera");
+
+      webgazer.params.faceMeshSolutionPath =
+        "https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh";
+
+      await webgazer
+        .setRegression("ridge")
+        .setGazeListener((data, elapsedTime) => {{
+          if (!data) {{
+            return;
+          }}
+
+          lastPrediction = {{ x: data.x, y: data.y }};
+          gazeDot.style.transform = `translate(${{data.x}}px, ${{data.y}}px)`;
+
+          const now = performance.now();
+          if (!tracking || now - lastSampleAt < SAMPLE_INTERVAL_MS) {{
+            return;
+          }}
+          lastSampleAt = now;
+
+          const point = viewportToPosterPoint(data.x, data.y);
+          if (!point) {{
+            currentAoiEl.textContent = "Outside poster";
+            return;
+          }}
+
+          const aoiHit = getAoiHit(point);
+          currentAoiEl.textContent = aoiHit || "Background";
+          samples.push({{
+            timestamp_ms: Math.round(elapsedTime),
+            gaze_x: point.x,
+            gaze_y: point.y,
+            duration_ms: SAMPLE_INTERVAL_MS,
+            aoi_hit: aoiHit,
+            poster: POSTER_NAME
+          }});
+          sampleCountEl.textContent = String(samples.length);
+        }})
+        .begin();
+
+      webgazer.showVideoPreview(true)
+        .showPredictionPoints(false)
+        .applyKalmanFilter(true);
+      attachCameraPreview();
+
+      showCalibrationPoint();
+    }}
+
+    function stopTracking() {{
+      tracking = false;
+      stopBtn.disabled = true;
+      startBtn.disabled = false;
+      posterSelect.disabled = false;
+      downloadBtn.disabled = samples.length === 0;
+      setStatus(samples.length ? "Stopped" : "No samples");
+      finishCalibrationLayer();
+      webgazer.pause();
+    }}
+
+    function csvEscape(value) {{
+      const text = String(value ?? "");
+      if (/[",\\n]/.test(text)) {{
+        return `"${{text.replace(/"/g, '""')}}"`;
+      }}
+      return text;
+    }}
+
+    function downloadCsv() {{
+      const headers = ["timestamp_ms", "gaze_x", "gaze_y", "duration_ms", "aoi_hit", "poster"];
+      const rows = [headers.join(",")].concat(
+        samples.map((sample) => headers.map((header) => csvEscape(sample[header])).join(","))
+      );
+      const blob = new Blob([rows.join("\\n")], {{ type: "text/csv;charset=utf-8" }});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const safePoster = POSTER_NAME.replace(/\\.[^.]+$/, "").replace(/[^a-z0-9_-]+/gi, "_");
+      link.href = url;
+      link.download = `${{safePoster}}_webgazer.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    }}
+
+    startBtn.addEventListener("click", () => {{
+      startTracking().catch((error) => {{
+        console.error(error);
+        setStatus("Camera blocked or WebGazer failed");
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+      }});
+    }});
+    stopBtn.addEventListener("click", stopTracking);
+    downloadBtn.addEventListener("click", downloadCsv);
+    posterSelect.addEventListener("change", () => {{
+      if (tracking) {{
+        return;
+      }}
+      loadPosterByIndex(Number(posterSelect.value));
+    }});
+    document.addEventListener("keydown", handleCalibrationKey, true);
+    window.addEventListener("resize", () => {{
+      renderAois();
+      if (calibrationLayer) {{
+        if (calibrationMode === "accuracy") {{
+          showAccuracyPoint();
+        }} else {{
+          showCalibrationPoint();
+        }}
+      }}
+    }});
+    poster.addEventListener("load", renderAois);
+    populatePosterSelect();
+    poster.src = currentPoster.imageSrc;
+    poster.alt = currentPoster.name;
+    renderAois();
+  </script>
+</body>
+</html>
+"""
+
+
+def write_webgazer_session(output_path, poster_name, image_shape, boxes):
+    """Write the WebGazer capture page for a selected poster."""
+    poster_path = os.path.join(image_path, poster_name)
+    poster_data_uri = get_image_data_uri(poster_path)
+    page = build_webgazer_html(poster_name, poster_data_uri, boxes, image_shape)
+
+    with open(output_path, "w", encoding="utf-8") as file:
+        file.write(page)
+
+    print(f"\nWebGazer session page created: {os.path.abspath(output_path)}")
+    print("\nUse it like this:")
+    print("1. Serve this folder locally: python3 -m http.server 8000")
+    print(f"2. Open: http://localhost:8000/{os.path.basename(output_path)}")
+    print("3. Click Start, allow camera access, calibrate, record, then Download CSV.")
+    print(
+        "4. Analyze it with: python3 aoi_visualizer.py "
+        f"--poster \"{poster_name}\" --gaze-file DOWNLOADED_CSV --raw-coordinate-mode pixel"
+    )
+
+
+def get_poster_url(poster_name):
+    """Return a URL path for a poster served from the project root."""
+    return "Capstone.yolov8/train/images/" + quote(poster_name)
+
+
+def build_poster_option(poster_name):
+    """Build poster metadata for the browser poster chooser."""
+    poster_path = os.path.join(image_path, poster_name)
+    image = read_image(poster_path)
+    if image is None:
+        raise ValueError(f"Unable to read poster: {poster_name}")
+
+    label_lines = load_labels(label_path, poster_name)
+    _, boxes = draw_aoi_boxes(image, label_lines, classes)
+    height, width = image.shape[:2]
+
+    return {
+        "name": poster_name,
+        "imageSrc": get_poster_url(poster_name),
+        "width": width,
+        "height": height,
+        "aois": [
+            {"label": label, "x1": x1, "y1": y1, "x2": x2, "y2": y2}
+            for label, x1, y1, x2, y2 in boxes
+        ],
+    }
+
+
+def write_webgazer_gallery(output_path):
+    """Write one WebGazer page with a dropdown for all labelled posters."""
+    poster_names = list_available_posters(image_path)
+    poster_options = []
+
+    for poster_name in poster_names:
+        poster_stem, _ = os.path.splitext(poster_name)
+        label_file = os.path.join(label_path, f"{poster_stem}.txt")
+        if os.path.isfile(label_file):
+            poster_options.append(build_poster_option(poster_name))
+
+    if not poster_options:
+        raise FileNotFoundError("No posters with matching label files were found.")
+
+    first = poster_options[0]
+    boxes = [
+        (aoi["label"], aoi["x1"], aoi["y1"], aoi["x2"], aoi["y2"])
+        for aoi in first["aois"]
+    ]
+    image_shape = (first["height"], first["width"], 3)
+    page = build_webgazer_html(
+        first["name"],
+        first["imageSrc"],
+        boxes,
+        image_shape,
+        poster_options=poster_options,
+    )
+
+    with open(output_path, "w", encoding="utf-8") as file:
+        file.write(page)
+
+    print(f"\nWebGazer poster chooser created: {os.path.abspath(output_path)}")
+    print(f"Included posters: {len(poster_options)}")
+    print("\nUse it like this:")
+    print("1. Serve this folder locally: python3 -m http.server 8001")
+    print(f"2. Open: http://localhost:8001/{os.path.basename(output_path)}")
+    print("3. Choose a poster, Start, calibrate, run accuracy check, record, Download CSV.")
+
+
 def main():
     """Run one offline PES analysis session for one poster and Tobii export."""
     global aoi_boxes
@@ -1034,13 +1886,26 @@ def main():
 
     args = parse_args()
 
-    print("Offline Tobii Glasses Poster PES Analyzer")
-    gaze_file = request_gaze_file(args.gaze_file)
+    print("Poster PES Analyzer")
+    if args.webgazer_gallery:
+        write_webgazer_gallery(args.webgazer_gallery)
+        return
 
-    selected_poster, image = load_poster(image_path)
+    selected_poster, image = load_poster(image_path, args.poster)
     lines = load_labels(label_path, selected_poster)
     preview_image, aoi_boxes = draw_aoi_boxes(image, lines, classes)
     attention_scores = initialize_attention_scores(aoi_boxes)
+
+    if args.webgazer_session:
+        write_webgazer_session(
+            args.webgazer_session,
+            selected_poster,
+            image.shape,
+            aoi_boxes,
+        )
+        return
+
+    gaze_file = request_gaze_file(args.gaze_file)
 
     print(f"\nAnalyzing Tobii export: {gaze_file}")
     if args.stimulus_filter:
