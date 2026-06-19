@@ -654,6 +654,39 @@ def build_raw_event(row, labels, columns):
     }
 
 
+def find_exact_normalized_column(fieldnames, target_name):
+    """Find a column by normalized exact name."""
+    normalized_target = normalize_column_name(target_name)
+
+    for fieldname in fieldnames:
+        if normalize_column_name(fieldname) == normalized_target:
+            return fieldname
+
+    return None
+
+
+def find_iris_quality_columns(fieldnames):
+    """Find optional WebGazer/Iris quality columns in exported CSVs."""
+    columns = {
+        "face_detected": find_exact_normalized_column(fieldnames, "face_detected"),
+        "eyes_detected": find_exact_normalized_column(fieldnames, "eyes_detected"),
+        "iris_tracking_ok": find_exact_normalized_column(fieldnames, "iris_tracking_ok"),
+    }
+    return {name: column for name, column in columns.items() if column}
+
+
+def row_passes_iris_quality_filter(row, iris_quality_columns):
+    """Reject WebGazer rows captured while face/iris tracking was unreliable."""
+    if not iris_quality_columns:
+        return True
+
+    for column in iris_quality_columns.values():
+        if not is_truthy_cell(row.get(column)):
+            return False
+
+    return True
+
+
 def analyze_raw_gaze_file(
     file_path,
     image_shape,
@@ -670,8 +703,10 @@ def analyze_raw_gaze_file(
         "rows_read": 0,
         "rows_used": 0,
         "events_used": 0,
+        "rows_quality_rejected": 0,
         "aoi_hit_mode": False,
         "coordinate_mode": False,
+        "iris_quality_filter": False,
     }
 
     with open(file_path, "r", encoding="utf-8-sig", newline="") as file:
@@ -718,10 +753,12 @@ def analyze_raw_gaze_file(
             ),
         }
         columns["x"], columns["y"] = find_coordinate_columns(fieldnames)
+        iris_quality_columns = find_iris_quality_columns(fieldnames)
         stimulus_columns = find_stimulus_columns(fieldnames)
 
         stats["aoi_hit_mode"] = bool(columns["aoi_hit"] or columns["aoi_indicators"])
         stats["coordinate_mode"] = bool(columns["x"] and columns["y"])
+        stats["iris_quality_filter"] = bool(iris_quality_columns)
 
         if not stats["aoi_hit_mode"] and not stats["coordinate_mode"]:
             raise ValueError(
@@ -740,6 +777,10 @@ def analyze_raw_gaze_file(
                 continue
 
             if not is_fixation_row(row, columns["movement_type"]):
+                continue
+
+            if not row_passes_iris_quality_filter(row, iris_quality_columns):
+                stats["rows_quality_rejected"] += 1
                 continue
 
             event = build_raw_event(row, labels, columns)
@@ -1020,6 +1061,8 @@ def print_raw_import_summary(stats):
     print(f"Rows read: {stats['rows_read']}")
     print(f"Rows used: {stats['rows_used']}")
     print(f"Events applied: {stats['events_used']}")
+    print(f"Iris quality filter used: {stats['iris_quality_filter']}")
+    print(f"Rows rejected by Iris quality: {stats['rows_quality_rejected']}")
     print(f"AOI hit columns used: {stats['aoi_hit_mode']}")
     print(f"Gaze coordinate columns used: {stats['coordinate_mode']}")
 
@@ -1112,6 +1155,7 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>WebGazer Capture</title>
   <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
   <style>
     :root {{
       color-scheme: light;
@@ -1372,6 +1416,7 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
         <div class="metric"><strong>Samples</strong><span id="sampleCount">0</span></div>
         <div class="metric"><strong>Current AOI</strong><span id="currentAoi">-</span></div>
         <div class="metric"><strong>Accuracy</strong><span id="accuracyStatus">-</span></div>
+        <div class="metric"><strong>Iris Quality</strong><span id="irisStatus">-</span></div>
       </div>
       <div class="panel muted">
         Choose a poster, click Start, allow camera access, then click each orange calibration dot
@@ -1389,6 +1434,8 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
   <script>
     const POSTERS = {json.dumps(poster_options)};
     const SAMPLE_INTERVAL_MS = 80;
+    const GAZE_SMOOTHING_WINDOW = 6;
+    const MAX_GAZE_JUMP_PX = 260;
     const CALIBRATION_POINTS = [
       [0.12, 0.16], [0.5, 0.16], [0.88, 0.16],
       [0.12, 0.5], [0.5, 0.5], [0.88, 0.5],
@@ -1405,6 +1452,7 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
     const sampleCountEl = document.getElementById("sampleCount");
     const currentAoiEl = document.getElementById("currentAoi");
     const accuracyStatusEl = document.getElementById("accuracyStatus");
+    const irisStatusEl = document.getElementById("irisStatus");
     const startBtn = document.getElementById("startBtn");
     const stopBtn = document.getElementById("stopBtn");
     const downloadBtn = document.getElementById("downloadBtn");
@@ -1426,6 +1474,27 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
     let lastCalibrationAdvanceAt = 0;
     let lastPrediction = null;
     let accuracyErrors = [];
+    let gazeHistory = [];
+    let lastStableGaze = null;
+    let faceMesh = null;
+    let irisRunning = false;
+    let irisProcessing = false;
+    let irisVideo = null;
+    let irisState = createEmptyIrisState();
+
+    function createEmptyIrisState() {{
+      return {{
+        face_detected: 0,
+        eyes_detected: 0,
+        iris_tracking_ok: 0,
+        iris_sample_age_ms: "",
+        iris_left_x: "",
+        iris_left_y: "",
+        iris_right_x: "",
+        iris_right_y: "",
+        iris_diameter_px: ""
+      }};
+    }}
 
     function setStatus(text) {{
       statusEl.textContent = text;
@@ -1437,9 +1506,13 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       calibrationIndex = 0;
       accuracyIndex = 0;
       accuracyErrors = [];
+      gazeHistory = [];
+      lastStableGaze = null;
       sampleCountEl.textContent = "0";
       currentAoiEl.textContent = "-";
       accuracyStatusEl.textContent = "-";
+      irisStatusEl.textContent = "-";
+      irisState = createEmptyIrisState();
       downloadBtn.disabled = true;
       finishCalibrationLayer();
       setStatus("Ready");
@@ -1499,6 +1572,177 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       container.style.width = "260px";
       container.style.height = "195px";
       container.style.zIndex = "1";
+      irisVideo = document.getElementById("webgazerVideoFeed");
+    }}
+
+    function averageLandmarks(landmarks, indexes) {{
+      const total = indexes.reduce((point, landmarkIndex) => {{
+        const landmark = landmarks[landmarkIndex];
+        return {{
+          x: point.x + landmark.x,
+          y: point.y + landmark.y
+        }};
+      }}, {{ x: 0, y: 0 }});
+
+      return {{
+        x: total.x / indexes.length,
+        y: total.y / indexes.length
+      }};
+    }}
+
+    function landmarkDistancePx(first, second, width, height) {{
+      return Math.hypot(
+        (first.x - second.x) * width,
+        (first.y - second.y) * height
+      );
+    }}
+
+    function updateIrisStatus(text) {{
+      irisStatusEl.textContent = text;
+    }}
+
+    function onFaceMeshResults(results) {{
+      const landmarks = results.multiFaceLandmarks && results.multiFaceLandmarks[0];
+
+      if (!landmarks || landmarks.length < 478) {{
+        irisState = {{
+          ...createEmptyIrisState(),
+          face_detected: landmarks ? 1 : 0
+        }};
+        updateIrisStatus(landmarks ? "No iris" : "No face");
+        return;
+      }}
+
+      const width = irisVideo ? irisVideo.videoWidth : 0;
+      const height = irisVideo ? irisVideo.videoHeight : 0;
+      const leftIris = averageLandmarks(landmarks, [468, 469, 470, 471, 472]);
+      const rightIris = averageLandmarks(landmarks, [473, 474, 475, 476, 477]);
+      const leftDiameter = width && height
+        ? landmarkDistancePx(landmarks[469], landmarks[471], width, height)
+        : 0;
+      const rightDiameter = width && height
+        ? landmarkDistancePx(landmarks[474], landmarks[476], width, height)
+        : 0;
+      const irisDiameter = leftDiameter && rightDiameter
+        ? (leftDiameter + rightDiameter) / 2
+        : Math.max(leftDiameter, rightDiameter);
+
+      irisState = {{
+        face_detected: 1,
+        eyes_detected: 1,
+        iris_tracking_ok: irisDiameter >= 3 ? 1 : 0,
+        iris_sample_age_ms: 0,
+        iris_left_x: Number(leftIris.x.toFixed(4)),
+        iris_left_y: Number(leftIris.y.toFixed(4)),
+        iris_right_x: Number(rightIris.x.toFixed(4)),
+        iris_right_y: Number(rightIris.y.toFixed(4)),
+        iris_diameter_px: irisDiameter ? Number(irisDiameter.toFixed(2)) : ""
+      }};
+      updateIrisStatus(irisState.iris_tracking_ok ? "Good" : "Weak");
+    }}
+
+    function getIrisSample() {{
+      return {{
+        ...irisState,
+        iris_sample_age_ms: irisState.eyes_detected ? Math.round(irisState.iris_sample_age_ms || 0) : ""
+      }};
+    }}
+
+    function resetGazeSmoothing() {{
+      gazeHistory = [];
+      lastStableGaze = null;
+    }}
+
+    function getSmoothedGaze(rawPoint) {{
+      if (lastStableGaze) {{
+        const jumpDistance = Math.hypot(rawPoint.x - lastStableGaze.x, rawPoint.y - lastStableGaze.y);
+        if (jumpDistance > MAX_GAZE_JUMP_PX) {{
+          resetGazeSmoothing();
+          return null;
+        }}
+      }}
+
+      gazeHistory.push(rawPoint);
+      if (gazeHistory.length > GAZE_SMOOTHING_WINDOW) {{
+        gazeHistory.shift();
+      }}
+
+      const smoothed = gazeHistory.reduce((total, point) => ({{
+        x: total.x + point.x,
+        y: total.y + point.y
+      }}), {{ x: 0, y: 0 }});
+
+      lastStableGaze = {{
+        x: smoothed.x / gazeHistory.length,
+        y: smoothed.y / gazeHistory.length
+      }};
+      return lastStableGaze;
+    }}
+
+    async function ensureFaceMesh() {{
+      if (faceMesh || !window.FaceMesh) {{
+        return faceMesh;
+      }}
+
+      faceMesh = new FaceMesh({{
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${{file}}`
+      }});
+      faceMesh.setOptions({{
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      }});
+      faceMesh.onResults(onFaceMeshResults);
+      return faceMesh;
+    }}
+
+    async function processIrisFrame() {{
+      if (!irisRunning || irisProcessing) {{
+        return;
+      }}
+
+      if (!irisVideo) {{
+        irisVideo = document.getElementById("webgazerVideoFeed");
+      }}
+
+      if (!irisVideo || irisVideo.readyState < 2) {{
+        window.requestAnimationFrame(processIrisFrame);
+        return;
+      }}
+
+      const mesh = await ensureFaceMesh();
+      if (!mesh) {{
+        updateIrisStatus("Unavailable");
+        return;
+      }}
+
+      irisProcessing = true;
+      try {{
+        await mesh.send({{ image: irisVideo }});
+      }} catch (error) {{
+        console.warn("Iris quality tracking failed", error);
+        updateIrisStatus("Failed");
+      }} finally {{
+        irisProcessing = false;
+      }}
+
+      if (irisState.eyes_detected) {{
+        irisState.iris_sample_age_ms = Number(irisState.iris_sample_age_ms || 0) + 80;
+      }}
+      window.setTimeout(processIrisFrame, 80);
+    }}
+
+    function startIrisTracking() {{
+      irisState = createEmptyIrisState();
+      irisRunning = true;
+      updateIrisStatus("Starting");
+      processIrisFrame();
+    }}
+
+    function stopIrisTracking() {{
+      irisRunning = false;
+      irisProcessing = false;
     }}
 
     function viewportToPosterPoint(x, y) {{
@@ -1679,6 +1923,7 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       calibrationIndex = 0;
       accuracyIndex = 0;
       accuracyErrors = [];
+      resetGazeSmoothing();
       sampleCountEl.textContent = "0";
       currentAoiEl.textContent = "-";
       accuracyStatusEl.textContent = "-";
@@ -1698,8 +1943,16 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
             return;
           }}
 
-          lastPrediction = {{ x: data.x, y: data.y }};
-          gazeDot.style.transform = `translate(${{data.x}}px, ${{data.y}}px)`;
+          const smoothedGaze = getSmoothedGaze({{ x: data.x, y: data.y }});
+          if (!smoothedGaze) {{
+            if (tracking) {{
+              currentAoiEl.textContent = "Unstable gaze";
+            }}
+            return;
+          }}
+
+          lastPrediction = smoothedGaze;
+          gazeDot.style.transform = `translate(${{smoothedGaze.x}}px, ${{smoothedGaze.y}}px)`;
 
           const now = performance.now();
           if (!tracking || now - lastSampleAt < SAMPLE_INTERVAL_MS) {{
@@ -1707,7 +1960,7 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
           }}
           lastSampleAt = now;
 
-          const point = viewportToPosterPoint(data.x, data.y);
+          const point = viewportToPosterPoint(smoothedGaze.x, smoothedGaze.y);
           if (!point) {{
             currentAoiEl.textContent = "Outside poster";
             return;
@@ -1721,7 +1974,8 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
             gaze_y: point.y,
             duration_ms: SAMPLE_INTERVAL_MS,
             aoi_hit: aoiHit,
-            poster: POSTER_NAME
+            poster: POSTER_NAME,
+            ...getIrisSample()
           }});
           sampleCountEl.textContent = String(samples.length);
         }})
@@ -1731,6 +1985,7 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
         .showPredictionPoints(false)
         .applyKalmanFilter(true);
       attachCameraPreview();
+      startIrisTracking();
 
       showCalibrationPoint();
     }}
@@ -1743,6 +1998,7 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       downloadBtn.disabled = samples.length === 0;
       setStatus(samples.length ? "Stopped" : "No samples");
       finishCalibrationLayer();
+      stopIrisTracking();
       webgazer.pause();
     }}
 
@@ -1755,7 +2011,11 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
     }}
 
     function downloadCsv() {{
-      const headers = ["timestamp_ms", "gaze_x", "gaze_y", "duration_ms", "aoi_hit", "poster"];
+      const headers = [
+        "timestamp_ms", "gaze_x", "gaze_y", "duration_ms", "aoi_hit", "poster",
+        "face_detected", "eyes_detected", "iris_tracking_ok", "iris_sample_age_ms",
+        "iris_left_x", "iris_left_y", "iris_right_x", "iris_right_y", "iris_diameter_px"
+      ];
       const rows = [headers.join(",")].concat(
         samples.map((sample) => headers.map((header) => csvEscape(sample[header])).join(","))
       );
