@@ -1153,27 +1153,37 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>WebGazer Capture</title>
+  <title>GazeLab — Poster Eye Tracking</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
   <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
   <style>
     :root {{
       color-scheme: light;
-      --ink: #172026;
-      --muted: #5f6b73;
-      --line: #d8dee4;
-      --panel: #f7f8fa;
-      --accent: #0f766e;
-      --danger: #b42318;
+      --ink: #0f172a;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --panel: #ffffff;
+      --surface: #f8fafc;
+      --accent: #6366f1;
+      --accent-dark: #4f46e5;
+      --accent-soft: rgba(99, 102, 241, 0.12);
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
+      --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06);
     }}
     * {{
       box-sizing: border-box;
     }}
     body {{
       margin: 0;
-      font-family: Arial, Helvetica, sans-serif;
+      font-family: "DM Sans", system-ui, -apple-system, sans-serif;
       color: var(--ink);
-      background: #ffffff;
+      background: linear-gradient(145deg, #eef2ff 0%, #f8fafc 45%, #f1f5f9 100%);
       height: 100vh;
       display: flex;
       flex-direction: column;
@@ -1188,62 +1198,136 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      padding: 12px 18px;
+      padding: 14px 24px;
       border-bottom: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.96);
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(12px);
+      box-shadow: var(--shadow-sm);
     }}
-    h1 {{
-      margin: 0;
-      font-size: 18px;
-      font-weight: 700;
-    }}
-    .header-left {{
+    .app-brand {{
       display: flex;
       align-items: center;
       gap: 12px;
       min-width: 0;
     }}
-    #posterSelect {{
-      min-height: 36px;
-      max-width: min(48vw, 520px);
+    .brand-icon {{
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--accent) 0%, #8b5cf6 100%);
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-size: 20px;
+      flex-shrink: 0;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+    }}
+    .brand-text h1 {{
+      margin: 0;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }}
+    .brand-text p {{
+      margin: 2px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+    }}
+    .header-controls {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }}
+    .poster-picker {{
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: min(42vw, 360px);
+    }}
+    .poster-search-status {{
+      min-height: 16px;
+      margin: -2px 2px 0;
+      color: var(--muted);
+      font-size: 11px;
+    }}
+    .poster-search-status.error {{
+      color: var(--danger);
+    }}
+    #posterSearch {{
+      min-height: 34px;
       border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 0 10px;
+      border-radius: 10px;
+      padding: 0 12px;
+      background: var(--surface);
+      color: var(--ink);
+      font: inherit;
+      font-size: 13px;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }}
+    #posterSearch:focus {{
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }}
+    #posterSelect {{
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0 12px;
       background: #ffffff;
       color: var(--ink);
       font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }}
+    .header-actions {{
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
     }}
     main {{
       display: grid;
-      grid-template-columns: minmax(260px, 1fr) 300px;
-      gap: 18px;
-      padding: 18px;
+      grid-template-columns: minmax(280px, 1fr) 340px;
+      gap: 20px;
+      padding: 20px 24px;
       flex-grow: 1;
       overflow: hidden;
       min-height: 0;
     }}
     button {{
-      min-height: 36px;
+      min-height: 40px;
       border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 0 12px;
+      border-radius: 10px;
+      padding: 0 16px;
       background: #ffffff;
       color: var(--ink);
-      font-weight: 700;
+      font-weight: 600;
+      font-size: 14px;
       cursor: pointer;
+      transition: transform 0.12s, box-shadow 0.12s, background 0.12s;
+    }}
+    button:hover:not(:disabled) {{
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-sm);
     }}
     button.primary {{
-      border-color: var(--accent);
-      background: var(--accent);
+      border-color: transparent;
+      background: linear-gradient(135deg, var(--accent) 0%, #8b5cf6 100%);
       color: #ffffff;
+      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
     }}
     button.danger {{
-      border-color: var(--danger);
+      border-color: rgba(239, 68, 68, 0.35);
       color: var(--danger);
+      background: rgba(239, 68, 68, 0.06);
     }}
     button:disabled {{
-      opacity: 0.5;
+      opacity: 0.45;
       cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
     }}
     .stage {{
       display: grid;
@@ -1251,109 +1335,245 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       height: 100%;
       width: 100%;
       overflow: hidden;
+      background: var(--panel);
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      position: relative;
+    }}
+    .stage-toolbar {{
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 5;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }}
+    .toggle-aoi {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+      box-shadow: var(--shadow-sm);
+    }}
+    .toggle-aoi input {{
+      accent-color: var(--accent);
     }}
     .poster-wrap {{
       position: relative;
-      max-width: 100%;
-      max-height: 100%;
-      border: 1px solid var(--line);
-      background: #f2f4f7;
+      max-width: calc(100% - 32px);
+      max-height: calc(100% - 32px);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 8px 32px rgba(15, 23, 42, 0.12);
       display: inline-block;
+    }}
+    .poster-wrap.aoi-hidden .aoi {{
+      opacity: 0;
+      pointer-events: none;
     }}
     #poster {{
       display: block;
       max-width: 100%;
-      max-height: calc(100vh - 120px);
+      max-height: calc(100vh - 140px);
       width: auto;
       height: auto;
       user-select: none;
     }}
     .aoi {{
       position: absolute;
-      border: 2px solid #12b76a;
+      border: 2px solid var(--aoi-color, #6366f1);
+      background: rgba(99, 102, 241, 0.12);
+      background: color-mix(in srgb, var(--aoi-color, #6366f1) 12%, transparent);
       pointer-events: none;
+      transition: opacity 0.2s;
     }}
     .aoi span {{
       position: absolute;
       left: -2px;
-      top: -24px;
+      top: -26px;
       min-width: 48px;
-      padding: 3px 6px;
-      background: #12b76a;
-      color: #06291b;
-      font-size: 12px;
+      padding: 4px 8px;
+      background: var(--aoi-color, #6366f1);
+      color: #ffffff;
+      font-size: 11px;
       font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
       white-space: nowrap;
+      border-radius: 6px 6px 6px 0;
     }}
     #gazeDot {{
       position: fixed;
       z-index: 30;
-      width: 14px;
-      height: 14px;
-      margin: -7px 0 0 -7px;
+      width: 16px;
+      height: 16px;
+      margin: -8px 0 0 -8px;
       border-radius: 50%;
-      background: #e31b54;
-      box-shadow: 0 0 0 3px rgba(227, 27, 84, 0.2);
+      background: radial-gradient(circle at 35% 35%, #fda4af, #e11d48);
+      box-shadow: 0 0 0 4px rgba(225, 29, 72, 0.25), 0 0 20px rgba(225, 29, 72, 0.4);
       pointer-events: none;
       transform: translate(-100px, -100px);
+      animation: gaze-pulse 1.6s ease-in-out infinite;
+    }}
+    @keyframes gaze-pulse {{
+      0%, 100% {{ box-shadow: 0 0 0 4px rgba(225, 29, 72, 0.25), 0 0 20px rgba(225, 29, 72, 0.4); }}
+      50% {{ box-shadow: 0 0 0 8px rgba(225, 29, 72, 0.15), 0 0 28px rgba(225, 29, 72, 0.5); }}
     }}
     aside {{
-      border-left: 1px solid var(--line);
-      padding-left: 18px;
       overflow-y: auto;
       height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
     }}
     .panel {{
-      padding: 14px;
+      padding: 16px;
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 14px;
       background: var(--panel);
+      box-shadow: var(--shadow-sm);
     }}
-    .panel + .panel {{
-      margin-top: 12px;
+    .panel-title {{
+      margin: 0 0 12px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }}
+    .metric-grid {{
+      display: grid;
+      gap: 10px;
     }}
     .metric {{
       display: flex;
       justify-content: space-between;
+      align-items: center;
       gap: 12px;
-      padding: 7px 0;
-      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      background: var(--surface);
+      border-radius: 10px;
       font-size: 14px;
     }}
-    .metric:last-child {{
+    .metric strong {{
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 13px;
+    }}
+    .metric-value {{
+      font-weight: 700;
+      text-align: right;
+    }}
+    .status-badge {{
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+    }}
+    .status-badge.ready {{ background: #ecfdf5; color: #059669; }}
+    .status-badge.starting {{ background: #eff6ff; color: #2563eb; }}
+    .status-badge.calibrating {{ background: #fffbeb; color: #d97706; }}
+    .status-badge.recording {{ background: #fef2f2; color: #dc2626; animation: rec-blink 1.2s ease-in-out infinite; }}
+    .status-badge.stopped {{ background: #f1f5f9; color: #475569; }}
+    .status-badge.error {{ background: #fef2f2; color: #b91c1c; }}
+    @keyframes rec-blink {{
+      0%, 100% {{ opacity: 1; }}
+      50% {{ opacity: 0.65; }}
+    }}
+    .aoi-pill {{
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      background: var(--accent-soft);
+      color: var(--accent-dark);
+    }}
+    .steps {{
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: step;
+    }}
+    .steps li {{
+      counter-increment: step;
+      position: relative;
+      padding: 10px 0 10px 36px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--muted);
+      border-bottom: 1px solid var(--line);
+    }}
+    .steps li:last-child {{
       border-bottom: 0;
     }}
-    .muted {{
-      color: var(--muted);
+    .steps li::before {{
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 10px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--accent-soft);
+      color: var(--accent-dark);
+      font-size: 12px;
+      font-weight: 700;
+      display: grid;
+      place-items: center;
+    }}
+    .tip-box {{
+      padding: 12px 14px;
+      background: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%);
+      border-radius: 10px;
       font-size: 13px;
-      line-height: 1.4;
+      line-height: 1.5;
+      color: #4338ca;
+    }}
+    .tip-box code {{
+      background: rgba(255, 255, 255, 0.7);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
     }}
     #cameraPanel {{
-      min-height: 190px;
       overflow: hidden;
     }}
     #cameraMount {{
       display: grid;
       place-items: center;
-      min-height: 168px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #101828;
+      min-height: 180px;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+      color: #94a3b8;
+      font-size: 13px;
     }}
     #cameraMount #webgazerVideoContainer {{
       position: relative !important;
       inset: auto !important;
-      width: 260px !important;
-      height: 195px !important;
+      width: 280px !important;
+      height: 210px !important;
       max-width: 100% !important;
       overflow: hidden !important;
-      border-radius: 6px;
+      border-radius: 10px;
     }}
     #cameraMount #webgazerVideoFeed,
     #cameraMount #webgazerFaceOverlay,
     #cameraMount #webgazerFaceFeedbackBox {{
-      width: 260px !important;
-      height: 195px !important;
+      width: 280px !important;
+      height: 210px !important;
       max-width: 100% !important;
     }}
     .calibration-layer {{
@@ -1362,70 +1582,140 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       z-index: 2147483647;
       cursor: crosshair;
       touch-action: manipulation;
+      background: rgba(15, 23, 42, 0.55);
+      backdrop-filter: blur(2px);
     }}
     .calibration-target {{
       position: absolute;
-      width: 34px;
-      height: 34px;
+      width: 36px;
+      height: 36px;
       border-radius: 50%;
-      background: #f79009;
-      box-shadow: 0 0 0 10px rgba(247, 144, 9, 0.22);
+      background: #f59e0b;
+      box-shadow: 0 0 0 12px rgba(245, 158, 11, 0.25), 0 0 40px rgba(245, 158, 11, 0.4);
       pointer-events: none;
+      animation: cal-pulse 1.4s ease-in-out infinite;
     }}
     .calibration-target.accuracy {{
-      background: #1570ef;
-      box-shadow: 0 0 0 10px rgba(21, 112, 239, 0.22);
+      background: #3b82f6;
+      box-shadow: 0 0 0 12px rgba(59, 130, 246, 0.25), 0 0 40px rgba(59, 130, 246, 0.4);
     }}
-    @media (max-width: 860px) {{
+    @keyframes cal-pulse {{
+      0%, 100% {{ transform: scale(1); }}
+      50% {{ transform: scale(1.08); }}
+    }}
+    @media (max-width: 960px) {{
+      body {{
+        height: auto;
+        min-height: 100vh;
+        overflow: auto;
+      }}
+      header {{
+        flex-direction: column;
+        align-items: stretch;
+        padding: 14px 16px;
+      }}
+      .header-controls {{
+        flex-direction: column;
+        align-items: stretch;
+      }}
+      .poster-picker {{
+        min-width: 100%;
+      }}
       main {{
         grid-template-columns: 1fr;
+        overflow-y: auto;
+        padding: 16px;
       }}
       aside {{
-        border-left: 0;
-        padding-left: 0;
+        max-height: none;
+      }}
+    }}
+    @media (max-width: 560px) {{
+      .header-actions {{
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+      }}
+      button {{
+        min-width: 0;
+        padding: 0 8px;
+        font-size: 12px;
+      }}
+      .stage {{
+        min-height: 52vh;
+      }}
+      .stage-toolbar {{
+        top: 8px;
+        right: 8px;
+      }}
+      .toggle-aoi {{
+        padding: 7px 10px;
       }}
     }}
   </style>
 </head>
 <body>
   <header>
-    <div class="header-left">
-      <h1 id="posterTitle">{html.escape(poster_name)}</h1>
-      <select id="posterSelect" aria-label="Choose poster"></select>
+    <div class="app-brand">
+      <div class="brand-icon" aria-hidden="true">👁</div>
+      <div class="brand-text">
+        <h1>GazeLab</h1>
+        <p id="posterTitle">{html.escape(poster_name)}</p>
+      </div>
     </div>
-    <div>
-      <button id="startBtn" class="primary">Start</button>
-      <button id="stopBtn" class="danger" disabled>Stop</button>
-      <button id="downloadBtn" disabled>Download CSV</button>
+    <div class="header-controls">
+      <div class="poster-picker">
+        <input id="posterSearch" type="search" placeholder="Search posters…" aria-label="Search posters">
+        <select id="posterSelect" aria-label="Choose poster"></select>
+        <p id="posterSearchStatus" class="poster-search-status" aria-live="polite"></p>
+      </div>
+      <div class="header-actions">
+        <button id="startBtn" class="primary">▶ Start</button>
+        <button id="stopBtn" class="danger" disabled>■ Stop</button>
+        <button id="downloadBtn" disabled>↓ CSV</button>
+      </div>
     </div>
   </header>
   <main>
     <section class="stage">
+      <div class="stage-toolbar">
+        <label class="toggle-aoi">
+          <input id="aoiToggle" type="checkbox" checked>
+          Show AOI regions
+        </label>
+      </div>
       <div id="posterWrap" class="poster-wrap">
         <img id="poster" src="{poster_image_src}" alt="{html.escape(poster_name)}">
       </div>
     </section>
     <aside>
       <div id="cameraPanel" class="panel">
+        <h2 class="panel-title">Live Camera</h2>
         <div id="cameraMount">
-          <span class="muted">Camera preview appears here after Start.</span>
+          <span>Camera preview appears here after Start</span>
         </div>
       </div>
       <div class="panel">
-        <div class="metric"><strong>Status</strong><span id="status">Ready</span></div>
-        <div class="metric"><strong>Samples</strong><span id="sampleCount">0</span></div>
-        <div class="metric"><strong>Current AOI</strong><span id="currentAoi">-</span></div>
-        <div class="metric"><strong>Accuracy</strong><span id="accuracyStatus">-</span></div>
-        <div class="metric"><strong>Iris Quality</strong><span id="irisStatus">-</span></div>
+        <h2 class="panel-title">Session Metrics</h2>
+        <div class="metric-grid">
+          <div class="metric"><strong>Status</strong><span id="status" class="metric-value status-badge ready">Ready</span></div>
+          <div class="metric"><strong>Samples</strong><span id="sampleCount" class="metric-value">0</span></div>
+          <div class="metric"><strong>Current AOI</strong><span id="currentAoi" class="metric-value">—</span></div>
+          <div class="metric"><strong>Accuracy</strong><span id="accuracyStatus" class="metric-value">—</span></div>
+          <div class="metric"><strong>Iris Quality</strong><span id="irisStatus" class="metric-value">—</span></div>
+        </div>
       </div>
-      <div class="panel muted">
-        Choose a poster, click Start, allow camera access, then click each orange calibration dot
-        until it disappears. Then click the blue accuracy dots. Recording starts
-        after the accuracy check.
+      <div class="panel">
+        <h2 class="panel-title">How to Use</h2>
+        <ol class="steps">
+          <li>Pick a poster from the dropdown (or search by name).</li>
+          <li>Click <strong>Start</strong> and allow webcam access.</li>
+          <li>Click each <strong>orange</strong> calibration dot, then each <strong>blue</strong> accuracy dot.</li>
+          <li>Look at the poster — recording begins automatically.</li>
+          <li>Click <strong>Stop</strong>, then <strong>Download CSV</strong> for analysis.</li>
+        </ol>
       </div>
-      <div class="panel muted">
-        The exported CSV contains poster pixel coordinates and AOI labels, so run
-        the Python analyzer with <strong>--gaze-file</strong> and this poster.
+      <div class="panel tip-box">
+        Run the Python analyzer with <code>--gaze-file your_export.csv</code> to compute PES scores and attention heatmaps.
       </div>
     </aside>
   </main>
@@ -1441,11 +1731,21 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       [0.12, 0.5], [0.5, 0.5], [0.88, 0.5],
       [0.12, 0.84], [0.5, 0.84], [0.88, 0.84]
     ];
+    const AOI_COLORS = {{
+      Product: "#3b82f6",
+      Headline: "#8b5cf6",
+      CTA: "#f59e0b",
+      Price: "#10b981",
+      logo: "#ec4899"
+    }};
 
     const poster = document.getElementById("poster");
     const posterWrap = document.getElementById("posterWrap");
     const posterTitle = document.getElementById("posterTitle");
     const posterSelect = document.getElementById("posterSelect");
+    const posterSearch = document.getElementById("posterSearch");
+    const posterSearchStatus = document.getElementById("posterSearchStatus");
+    const aoiToggle = document.getElementById("aoiToggle");
     const cameraMount = document.getElementById("cameraMount");
     const gazeDot = document.getElementById("gazeDot");
     const statusEl = document.getElementById("status");
@@ -1481,6 +1781,8 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
     let irisProcessing = false;
     let irisVideo = null;
     let irisState = createEmptyIrisState();
+    let sessionActive = false;
+    let sessionToken = 0;
 
     function createEmptyIrisState() {{
       return {{
@@ -1496,8 +1798,29 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       }};
     }}
 
-    function setStatus(text) {{
+    function setStatus(text, tone = "ready") {{
       statusEl.textContent = text;
+      statusEl.className = `metric-value status-badge ${{tone}}`;
+    }}
+
+    function formatPosterName(name) {{
+      const base = name.replace(/\\.[^.]+$/, "").replace(/_jpg\\.rf\\.[^.]+$/i, "");
+      return base.length > 48 ? `${{base.slice(0, 45)}}…` : base;
+    }}
+
+    function setCurrentAoi(text) {{
+      if (!text || text === "—" || text === "-") {{
+        currentAoiEl.textContent = "—";
+        currentAoiEl.className = "metric-value";
+        return;
+      }}
+      currentAoiEl.textContent = text;
+      currentAoiEl.className = "metric-value aoi-pill";
+    }}
+
+    function setPickerEnabled(enabled) {{
+      posterSelect.disabled = !enabled;
+      posterSearch.disabled = !enabled;
     }}
 
     function resetSessionState() {{
@@ -1509,13 +1832,13 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       gazeHistory = [];
       lastStableGaze = null;
       sampleCountEl.textContent = "0";
-      currentAoiEl.textContent = "-";
-      accuracyStatusEl.textContent = "-";
-      irisStatusEl.textContent = "-";
+      setCurrentAoi("—");
+      accuracyStatusEl.textContent = "—";
+      irisStatusEl.textContent = "—";
       irisState = createEmptyIrisState();
       downloadBtn.disabled = true;
       finishCalibrationLayer();
-      setStatus("Ready");
+      setStatus("Ready", "ready");
     }}
 
     function loadPosterByIndex(index) {{
@@ -1524,7 +1847,8 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       IMAGE_WIDTH = currentPoster.width;
       IMAGE_HEIGHT = currentPoster.height;
       AOIS = currentPoster.aois;
-      posterTitle.textContent = POSTER_NAME;
+      posterTitle.textContent = formatPosterName(POSTER_NAME);
+      posterTitle.title = POSTER_NAME;
       poster.src = currentPoster.imageSrc;
       poster.alt = POSTER_NAME;
       resetSessionState();
@@ -1532,17 +1856,48 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
     }}
 
     function populatePosterSelect() {{
+      posterSelect.replaceChildren();
       POSTERS.forEach((posterOption, index) => {{
         const option = document.createElement("option");
         option.value = String(index);
-        option.textContent = posterOption.name;
+        option.textContent = formatPosterName(posterOption.name);
+        option.title = posterOption.name;
+        option.dataset.search = posterOption.name.toLowerCase();
         posterSelect.appendChild(option);
       }});
       posterSelect.value = "0";
+      posterSearchStatus.textContent = `${{POSTERS.length}} posters available`;
+    }}
+
+    function filterPosterOptions() {{
+      const query = posterSearch.value.trim().toLowerCase();
+      let firstVisible = null;
+      let visibleCount = 0;
+      Array.from(posterSelect.options).forEach((option) => {{
+        const visible = !query || option.dataset.search.includes(query);
+        option.hidden = !visible;
+        option.disabled = !visible;
+        if (visible && firstVisible === null) {{
+          firstVisible = option.value;
+        }}
+        if (visible) {{
+          visibleCount += 1;
+        }}
+      }});
+      posterSelect.disabled = visibleCount === 0;
+      posterSearchStatus.textContent = visibleCount
+        ? `${{visibleCount}} poster${{visibleCount === 1 ? "" : "s"}} found`
+        : "No posters match this search";
+      posterSearchStatus.classList.toggle("error", visibleCount === 0);
+      if (firstVisible !== null && posterSelect.selectedOptions[0]?.hidden) {{
+        posterSelect.value = firstVisible;
+        loadPosterByIndex(Number(firstVisible));
+      }}
     }}
 
     function renderAois() {{
       document.querySelectorAll(".aoi").forEach((node) => node.remove());
+      posterWrap.classList.toggle("aoi-hidden", !aoiToggle.checked);
       const rect = poster.getBoundingClientRect();
       const scaleX = rect.width / IMAGE_WIDTH;
       const scaleY = rect.height / IMAGE_HEIGHT;
@@ -1550,6 +1905,8 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       AOIS.forEach((aoi) => {{
         const box = document.createElement("div");
         box.className = "aoi";
+        const color = AOI_COLORS[aoi.label] || "#6366f1";
+        box.style.setProperty("--aoi-color", color);
         box.style.left = `${{aoi.x1 * scaleX}}px`;
         box.style.top = `${{aoi.y1 * scaleY}}px`;
         box.style.width = `${{(aoi.x2 - aoi.x1) * scaleX}}px`;
@@ -1793,7 +2150,7 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
 
     function updateAccuracyStatus() {{
       if (!accuracyErrors.length) {{
-        accuracyStatusEl.textContent = "-";
+        accuracyStatusEl.textContent = "—";
         return;
       }}
 
@@ -1810,9 +2167,12 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
     }}
 
     function startRecording() {{
+      if (!sessionActive) {{
+        return;
+      }}
       finishCalibrationLayer();
       tracking = true;
-      setStatus("Recording");
+      setStatus("Recording", "recording");
     }}
 
     function advanceCalibration(event) {{
@@ -1882,6 +2242,9 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
     }}
 
     function showAccuracyPoint() {{
+      if (!sessionActive) {{
+        return;
+      }}
       calibrationMode = "accuracy";
 
       if (accuracyIndex >= CALIBRATION_POINTS.length) {{
@@ -1894,10 +2257,13 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
         Math.round(window.innerWidth * xRatio),
         Math.round(window.innerHeight * yRatio)
       ], true);
-      setStatus(`Accuracy ${{accuracyIndex + 1}}/${{CALIBRATION_POINTS.length}}`);
+      setStatus(`Accuracy ${{accuracyIndex + 1}}/${{CALIBRATION_POINTS.length}}`, "calibrating");
     }}
 
     function showCalibrationPoint() {{
+      if (!sessionActive) {{
+        return;
+      }}
       calibrationMode = "calibration";
 
       if (calibrationIndex >= CALIBRATION_POINTS.length) {{
@@ -1905,7 +2271,7 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
           calibrationTarget.className = "calibration-target accuracy";
         }}
         accuracyIndex = 0;
-        setStatus("Accuracy check");
+        setStatus("Accuracy check", "calibrating");
         window.setTimeout(showAccuracyPoint, 300);
         return;
       }}
@@ -1915,23 +2281,26 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
         Math.round(window.innerWidth * xRatio),
         Math.round(window.innerHeight * yRatio)
       ]);
-      setStatus(`Calibrating ${{calibrationIndex + 1}}/${{CALIBRATION_POINTS.length}}`);
+      setStatus(`Calibrating ${{calibrationIndex + 1}}/${{CALIBRATION_POINTS.length}}`, "calibrating");
     }}
 
     async function startTracking() {{
+      const currentSessionToken = ++sessionToken;
+      sessionActive = true;
       samples = [];
       calibrationIndex = 0;
       accuracyIndex = 0;
       accuracyErrors = [];
       resetGazeSmoothing();
+      lastSampleAt = 0;
       sampleCountEl.textContent = "0";
-      currentAoiEl.textContent = "-";
-      accuracyStatusEl.textContent = "-";
+      setCurrentAoi("—");
+      accuracyStatusEl.textContent = "—";
       downloadBtn.disabled = true;
       startBtn.disabled = true;
       stopBtn.disabled = false;
-      posterSelect.disabled = true;
-      setStatus("Starting camera");
+      setPickerEnabled(false);
+      setStatus("Starting camera", "starting");
 
       webgazer.params.faceMeshSolutionPath =
         "https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh";
@@ -1946,7 +2315,7 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
           const smoothedGaze = getSmoothedGaze({{ x: data.x, y: data.y }});
           if (!smoothedGaze) {{
             if (tracking) {{
-              currentAoiEl.textContent = "Unstable gaze";
+              setCurrentAoi("Unstable gaze");
             }}
             return;
           }}
@@ -1962,12 +2331,12 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
 
           const point = viewportToPosterPoint(smoothedGaze.x, smoothedGaze.y);
           if (!point) {{
-            currentAoiEl.textContent = "Outside poster";
+            setCurrentAoi("Outside poster");
             return;
           }}
 
           const aoiHit = getAoiHit(point);
-          currentAoiEl.textContent = aoiHit || "Background";
+          setCurrentAoi(aoiHit || "Background");
           samples.push({{
             timestamp_ms: Math.round(elapsedTime),
             gaze_x: point.x,
@@ -1981,6 +2350,11 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
         }})
         .begin();
 
+      if (!sessionActive || currentSessionToken !== sessionToken) {{
+        webgazer.pause();
+        return;
+      }}
+
       webgazer.showVideoPreview(true)
         .showPredictionPoints(false)
         .applyKalmanFilter(true);
@@ -1991,15 +2365,30 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
     }}
 
     function stopTracking() {{
+      sessionActive = false;
+      sessionToken += 1;
       tracking = false;
       stopBtn.disabled = true;
       startBtn.disabled = false;
-      posterSelect.disabled = false;
+      setPickerEnabled(true);
       downloadBtn.disabled = samples.length === 0;
-      setStatus(samples.length ? "Stopped" : "No samples");
+      setStatus(samples.length ? "Stopped" : "No samples", "stopped");
       finishCalibrationLayer();
       stopIrisTracking();
       webgazer.pause();
+    }}
+
+    function recoverFromStartFailure() {{
+      sessionActive = false;
+      sessionToken += 1;
+      tracking = false;
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      setPickerEnabled(true);
+      finishCalibrationLayer();
+      stopIrisTracking();
+      webgazer.pause();
+      setStatus("Camera blocked or WebGazer failed", "error");
     }}
 
     function csvEscape(value) {{
@@ -2032,9 +2421,7 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
     startBtn.addEventListener("click", () => {{
       startTracking().catch((error) => {{
         console.error(error);
-        setStatus("Camera blocked or WebGazer failed");
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
+        recoverFromStartFailure();
       }});
     }});
     stopBtn.addEventListener("click", stopTracking);
@@ -2045,6 +2432,9 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       }}
       loadPosterByIndex(Number(posterSelect.value));
     }});
+    posterSearch.addEventListener("input", filterPosterOptions);
+    posterSearch.addEventListener("search", filterPosterOptions);
+    aoiToggle.addEventListener("change", renderAois);
     document.addEventListener("keydown", handleCalibrationKey, true);
     window.addEventListener("resize", () => {{
       renderAois();
