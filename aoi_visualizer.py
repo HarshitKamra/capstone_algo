@@ -1548,42 +1548,41 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       font-size: 12px;
     }}
     #cameraPanel {{
+      flex: 0 0 auto;
       overflow: hidden;
     }}
     #cameraMount {{
       display: grid;
       place-items: center;
-      min-height: 180px;
+      width: 100%;
+      min-height: 230px;
+      padding: 10px;
       border: 1px solid #1e293b;
       border-radius: 12px;
       background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
       color: #94a3b8;
       font-size: 13px;
     }}
-    #cameraMount #webgazerVideoContainer {{
-      position: relative !important;
-      inset: auto !important;
-      width: 280px !important;
-      height: 210px !important;
-      max-width: 100% !important;
-      overflow: hidden !important;
+    #cameraPlaceholder {{ text-align: center; }}
+    #cameraPreview {{
+      display: none;
+      width: 280px;
+      height: 210px;
+      max-width: 100%;
       border-radius: 10px;
+      object-fit: cover;
+      transform: scaleX(-1);
     }}
-    #cameraMount #webgazerVideoFeed,
-    #cameraMount #webgazerFaceOverlay,
-    #cameraMount #webgazerFaceFeedbackBox {{
-      width: 280px !important;
-      height: 210px !important;
-      max-width: 100% !important;
-    }}
+    #cameraMount.camera-active #cameraPlaceholder {{ display: none; }}
+    #cameraMount.camera-active #cameraPreview {{ display: block; }}
     .calibration-layer {{
       position: fixed;
       inset: 0;
       z-index: 2147483647;
       cursor: crosshair;
       touch-action: manipulation;
-      background: rgba(15, 23, 42, 0.55);
-      backdrop-filter: blur(2px);
+      /* Keep the live camera and poster visible while this layer captures clicks. */
+      background: transparent;
     }}
     .calibration-target {{
       position: absolute;
@@ -1691,7 +1690,8 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       <div id="cameraPanel" class="panel">
         <h2 class="panel-title">Live Camera</h2>
         <div id="cameraMount">
-          <span>Camera preview appears here after Start</span>
+          <span id="cameraPlaceholder">Camera preview appears here after Start</span>
+          <video id="cameraPreview" autoplay muted playsinline aria-label="Live webcam preview"></video>
         </div>
       </div>
       <div class="panel">
@@ -1747,6 +1747,7 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
     const posterSearchStatus = document.getElementById("posterSearchStatus");
     const aoiToggle = document.getElementById("aoiToggle");
     const cameraMount = document.getElementById("cameraMount");
+    const cameraPreview = document.getElementById("cameraPreview");
     const gazeDot = document.getElementById("gazeDot");
     const statusEl = document.getElementById("status");
     const sampleCountEl = document.getElementById("sampleCount");
@@ -1918,18 +1919,25 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
 
     function attachCameraPreview() {{
       const container = document.getElementById("webgazerVideoContainer");
-      if (!container || container.parentElement === cameraMount) {{
+      const sourceVideo = document.getElementById("webgazerVideoFeed");
+      if (!container || !sourceVideo || !sourceVideo.srcObject) {{
+        return false;
+      }}
+      cameraPreview.srcObject = sourceVideo.srcObject;
+      cameraPreview.play().catch(() => {{}});
+      cameraMount.classList.add("camera-active");
+      container.style.position = "fixed";
+      container.style.left = "-10000px";
+      container.style.top = "-10000px";
+      irisVideo = sourceVideo;
+      return true;
+    }}
+
+    function attachCameraPreviewWhenReady(attemptsRemaining = 100) {{
+      if (attachCameraPreview() || attemptsRemaining <= 0 || !sessionActive) {{
         return;
       }}
-
-      cameraMount.replaceChildren(container);
-      container.style.position = "relative";
-      container.style.top = "auto";
-      container.style.left = "auto";
-      container.style.width = "260px";
-      container.style.height = "195px";
-      container.style.zIndex = "1";
-      irisVideo = document.getElementById("webgazerVideoFeed");
+      window.setTimeout(() => attachCameraPreviewWhenReady(attemptsRemaining - 1), 100);
     }}
 
     function averageLandmarks(landmarks, indexes) {{
@@ -2358,7 +2366,7 @@ def build_webgazer_html(poster_name, poster_image_src, boxes, image_shape, poste
       webgazer.showVideoPreview(true)
         .showPredictionPoints(false)
         .applyKalmanFilter(true);
-      attachCameraPreview();
+      attachCameraPreviewWhenReady();
       startIrisTracking();
 
       showCalibrationPoint();
