@@ -1,52 +1,48 @@
 import argparse
 import base64
-import csv
 import html
 import json
 import os
-import re
+import sys
+from pathlib import Path
 from urllib.parse import quote
 
 import cv2
 import matplotlib.pyplot as plt
 
+# Ensure project root is importable when run as a script
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-# DATASET PATHS
-image_path = "Capstone.yolov8/train/images"
-label_path = "Capstone.yolov8/train/labels"
+from analysis.aoi import (  # noqa: E402
+    aoi_records_to_legacy_boxes,
+    draw_aoi_boxes as _draw_aoi_boxes,
+    get_present_aoi_labels,
+    parse_yolo_label_lines,
+)
+from analysis.attention import calculate_attention_percentages  # noqa: E402
+from analysis.detection import load_label_lines  # noqa: E402
+from analysis.gaze import GazeAnalyzer  # noqa: E402
+from analysis.poster import list_available_posters, read_image, select_poster  # noqa: E402
+from analysis.scoring import PES_WEIGHTS, calculate_pes  # noqa: E402
+from config.settings import (  # noqa: E402
+    BACKGROUND_LABEL,
+    CLASS_NAMES,
+    DATASET_IMAGE_DIR,
+    DATASET_LABEL_DIR,
+)
 
-# CLASS NAMES FROM data.yaml
-classes = {
-    0: "CTA",
-    1: "Headline",
-    2: "Price",
-    3: "Product",
-    4: "logo",
-}
+# Legacy module-level paths (CLI compatibility)
+image_path = str(DATASET_IMAGE_DIR)
+label_path = str(DATASET_LABEL_DIR)
+classes = CLASS_NAMES
 
 SUPPORTED_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".avif")
-RAW_DATA_DEFAULT_FIXATION_MS = 300
-BACKGROUND_LABEL = "Background"
-CORE_AOI_ORDER = ["Product", "Headline", "CTA", "Price", "logo"]
 
-IDEAL_ATTENTION_RANGES = {
-    "Product": (30, 45),
-    "Headline": (15, 30),
-    "CTA": (10, 20),
-    "Price": (5, 15),
-    "logo": (3, 10),
-}
-
-PES_WEIGHTS = {
-    "Product Attention": 25,
-    "CTA Visibility": 20,
-    "Headline Engagement": 20,
-    "Attention Balance": 15,
-    "Visual Hierarchy": 20,
-}
-
-aoi_boxes = []
-attention_scores = {}
+aoi_boxes: list[tuple[str, int, int, int, int]] = []
+attention_scores: dict[str, float] = {}
+_gaze_analyzer: GazeAnalyzer | None = None
 
 
 def parse_args():
@@ -96,156 +92,90 @@ def parse_args():
             "with --webgazer-session."
         ),
     )
+    parser.add_argument(
+        "--detect",
+        action="store_true",
+        help="Use YOLO inference instead of ground-truth label files (requires trained weights).",
+    )
+    parser.add_argument(
+        "--weights",
+        help="Optional path to YOLO weights (.pt). Defaults to MODEL_WEIGHTS env or models/weights/best.pt.",
+    )
     return parser.parse_args()
-
-
-def list_available_posters(folder_path):
-    """Return sorted poster filenames filtered by supported image extensions."""
-    if not os.path.isdir(folder_path):
-        raise FileNotFoundError(f"Image folder not found: {folder_path}")
-
-    posters = [
-        name
-        for name in os.listdir(folder_path)
-        if os.path.isfile(os.path.join(folder_path, name))
-        and name.lower().endswith(SUPPORTED_EXTENSIONS)
-    ]
-
-    return sorted(posters)
 
 
 def load_poster(folder_path, requested_poster=None):
     """Let the user select a poster and return its filename plus image array."""
-    posters = list_available_posters(folder_path)
-
-    if not posters:
-        raise FileNotFoundError("No supported poster images found.")
-
-    lower_to_original = {name.lower(): name for name in posters}
-
-    if requested_poster:
-        selected_poster = lower_to_original.get(requested_poster.lower())
-        if not selected_poster:
-            raise FileNotFoundError(
-                f"Poster not found: {requested_poster}. Choose one from {folder_path}."
-            )
-        poster_full_path = os.path.join(folder_path, selected_poster)
-        image = read_image(poster_full_path)
-
-        if image is None:
-            raise ValueError(f"Unable to read selected poster: {selected_poster}")
-
-        print(f"Selected Poster: {selected_poster}")
-        return selected_poster, image
-
-    print("Available Posters:")
-    for index, poster_name in enumerate(posters, start=1):
-        print(f"{index}. {poster_name}")
-
-    while True:
-        selection = input("\nSelect poster by number OR type filename: ").strip()
-
-        if selection.isdigit():
-            selected_index = int(selection)
-            if 1 <= selected_index <= len(posters):
-                selected_poster = posters[selected_index - 1]
-                break
-
-            print(f"Invalid number. Choose between 1 and {len(posters)}.")
-            continue
-
-        manual_name = selection.lower()
-        if manual_name in lower_to_original:
-            selected_poster = lower_to_original[manual_name]
-            break
-
-        print("Filename not found. Please choose from the listed posters.")
-
-    poster_full_path = os.path.join(folder_path, selected_poster)
-    image = read_image(poster_full_path)
-
-    if image is None:
-        raise ValueError(f"Unable to read selected poster: {selected_poster}")
-
-    print(f"Selected Poster: {selected_poster}")
+    selected_poster, image = select_poster(folder_path, requested_poster, interactive=True)
     return selected_poster, image
-
-
-def read_image(file_path):
-    """
-    Read poster images as OpenCV BGR arrays.
-    Pillow fallback supports formats like AVIF when OpenCV cannot read them.
-    """
-    image = cv2.imread(file_path)
-
-    if image is not None:
-        return image
-
-    try:
-        import numpy as np
-        from PIL import Image
-
-        with Image.open(file_path) as pil_image:
-            rgb_image = pil_image.convert("RGB")
-            return cv2.cvtColor(np.array(rgb_image), cv2.COLOR_RGB2BGR)
-    except Exception:
-        return None
 
 
 def load_labels(folder_path, poster_name):
     """Load the YOLO label file that matches the selected poster filename."""
-    poster_stem, _ = os.path.splitext(poster_name)
-    label_file = f"{poster_stem}.txt"
-    label_full_path = os.path.join(folder_path, label_file)
-
-    if not os.path.isfile(label_full_path):
-        raise FileNotFoundError(f"Matching label file not found: {label_file}")
-
-    with open(label_full_path, "r", encoding="utf-8") as file:
-        lines = file.readlines()
-
-    print(f"Loaded Label File: {label_file}")
+    lines = load_label_lines(folder_path, poster_name)
+    print(f"Loaded Label File: {os.path.splitext(poster_name)[0]}.txt")
     return lines
 
 
 def draw_aoi_boxes(image, lines, class_names):
     """Convert YOLO AOIs to pixel boxes and draw them on the poster preview."""
-    preview = image.copy()
-    height, width, _ = preview.shape
-    poster_aoi_boxes = []
+    records = parse_yolo_label_lines(lines, image.shape, class_names, confidence=1.0)
+    preview, boxes = _draw_aoi_boxes(image, records)
+    return preview, boxes
 
-    for line in lines:
-        data = line.strip().split()
-        if len(data) < 5:
-            continue
 
-        class_id = int(data[0])
-        x_center = float(data[1]) * width
-        y_center = float(data[2]) * height
-        box_width = float(data[3]) * width
-        box_height = float(data[4]) * height
+def _init_gaze_session(records):
+    """Initialize global gaze state from AOI records."""
+    global aoi_boxes, attention_scores, _gaze_analyzer
+    _gaze_analyzer = GazeAnalyzer(records)
+    aoi_boxes = _gaze_analyzer.aoi_boxes
+    attention_scores = _gaze_analyzer.attention_scores
 
-        x1 = int(x_center - box_width / 2)
-        y1 = int(y_center - box_height / 2)
-        x2 = int(x_center + box_width / 2)
-        y2 = int(y_center + box_height / 2)
 
-        label = class_names.get(class_id, f"class_{class_id}")
-        poster_aoi_boxes.append((label, x1, y1, x2, y2))
+def initialize_attention_scores(boxes):
+    """Create a fresh per-poster attention store, including zero-attention AOIs."""
+    records = parse_yolo_label_lines(
+        [],
+        (1, 1, 3),
+        classes,
+    )
+    # Build minimal records from legacy boxes for gaze-only re-init
+    from analysis.aoi import build_aoi_record
 
-        cv2.rectangle(preview, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(
-            preview,
-            label,
-            (x1, max(y1 - 10, 20)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 0, 0),
-            2,
-        )
+    legacy_records = []
+    if boxes:
+        height = max(y2 for _, _, _, _, y2 in boxes) + 1
+        width = max(x2 for _, _, _, x2, _ in boxes) + 1
+        name_to_id = {name: cid for cid, name in classes.items()}
+        for label, x1, y1, x2, y2 in boxes:
+            cx = ((x1 + x2) / 2) / max(width, 1)
+            cy = ((y1 + y2) / 2) / max(height, 1)
+            bw = (x2 - x1) / max(width, 1)
+            bh = (y2 - y1) / max(height, 1)
+            legacy_records.append(
+                build_aoi_record(
+                    class_id=name_to_id.get(label, -1),
+                    x_center_norm=cx,
+                    y_center_norm=cy,
+                    width_norm=bw,
+                    height_norm=bh,
+                    image_width=width,
+                    image_height=height,
+                    confidence=1.0,
+                    class_names=classes,
+                )
+            )
+    _init_gaze_session(legacy_records if legacy_records else records)
+    return attention_scores
 
-    preview = cv2.cvtColor(preview, cv2.COLOR_BGR2RGB)
-    return preview, poster_aoi_boxes
+
+def analyze_raw_gaze_file(file_path, image_shape, coordinate_mode="auto", stimulus_filter=None):
+    """Convert exported Tobii/WebGazer data into AOI attention time."""
+    if _gaze_analyzer is None:
+        raise RuntimeError("Gaze session not initialized. Load AOIs first.")
+    return _gaze_analyzer.analyze_raw_gaze_file(
+        file_path, image_shape, coordinate_mode, stimulus_filter
+    )
 
 
 def request_gaze_file(gaze_file=None):
