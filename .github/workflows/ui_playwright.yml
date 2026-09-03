@@ -24,9 +24,9 @@ jobs:
         run: |
           python -m playwright install --with-deps
 
-      - name: Start Streamlit app
+      - name: Start Streamlit app (wrapper)
         run: |
-          nohup python -m streamlit run app/app.py --server.port 8501 &
+          nohup python run_server.py &
           sleep 5
 
       - name: Run UI tests
