@@ -58,6 +58,7 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
 
 
 def start_proxy(port=8501):
+    # Not used in static iframe mode
     server = socketserver.TCPServer(("", port), ProxyHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -65,10 +66,39 @@ def start_proxy(port=8501):
 
 
 def main():
+    # create a small static index page with a sandboxed iframe so the Streamlit app
+    # cannot manipulate the parent document title. The iframe loads the app on 8502.
+    tmp_dir = os.path.abspath(".run_server_static")
+    os.makedirs(tmp_dir, exist_ok=True)
+    index_html = """
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Poster AOI Visualizer</title>
+        <style>html,body,iframe{height:100%;margin:0;padding:0;border:0}</style>
+      </head>
+      <body>
+        <!-- sandbox the iframe so embedded Streamlit cannot change parent title -->
+        <iframe src="http://localhost:8502/" style="width:100%;height:100%;border:0"
+                sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
+      </body>
+    </html>
+    """
+    with open(os.path.join(tmp_dir, "index.html"), "w", encoding="utf-8") as f:
+        f.write(index_html)
+
     st_proc = start_streamlit()
     # give Streamlit a moment to start
     time.sleep(2)
-    proxy = start_proxy(8501)
+
+    # serve static index on 8501
+    os.chdir(tmp_dir)
+    handler = http.server.SimpleHTTPRequestHandler
+    httpd = socketserver.TCPServer(("", 8501), handler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
 
     try:
         while True:
@@ -80,7 +110,7 @@ def main():
             st_proc.terminate()
         except Exception:
             pass
-        proxy.shutdown()
+        httpd.shutdown()
 
 
 if __name__ == "__main__":
