@@ -34,6 +34,26 @@ st.set_page_config(page_title="Poster AOI Visualizer", layout="wide")
 
 st.title("Poster AOI Visualizer")
 
+# Ensure top-level browser title is set (helps Playwright detect the app title)
+try:
+    import streamlit.components.v1 as components
+
+    components.html(
+        """
+        <script>
+        try {
+            document.title = 'Poster AOI Visualizer';
+            if (window.parent && window.parent.document) {
+                window.parent.document.title = 'Poster AOI Visualizer';
+            }
+        } catch(e){}
+        </script>
+        """,
+        height=0,
+    )
+except Exception:
+    logger.exception("Failed to set top-level document title via component")
+
 # Start a local metrics server on port 8000 (Prometheus scrape target)
 try:
     start_metrics_server(8000)
