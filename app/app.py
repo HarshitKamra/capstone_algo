@@ -41,12 +41,23 @@ try:
     components.html(
         """
         <script>
-        try {
-            document.title = 'Poster AOI Visualizer';
-            if (window.parent && window.parent.document) {
-                window.parent.document.title = 'Poster AOI Visualizer';
-            }
-        } catch(e){}
+        (function(){
+            var maxTries = 40; // ~10 seconds
+            var tries = 0;
+            var id = setInterval(function(){
+                try {
+                    document.title = 'Poster AOI Visualizer';
+                    if (window.top && window.top.document) {
+                        window.top.document.title = 'Poster AOI Visualizer';
+                    }
+                    if (window.parent && window.parent.document) {
+                        window.parent.document.title = 'Poster AOI Visualizer';
+                    }
+                } catch(e){}
+                tries += 1;
+                if (tries >= maxTries) clearInterval(id);
+            }, 250);
+        })();
         </script>
         """,
         height=0,
