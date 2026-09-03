@@ -1,0 +1,23 @@
+"""Project configuration."""
+
+from config.settings import (
+    CLASS_NAMES,
+    DATASET_DIR,
+    DATASET_IMAGE_DIR,
+    DATASET_LABEL_DIR,
+    DATASET_YAML,
+    DEFAULT_MODEL_WEIGHTS,
+    PROJECT_ROOT,
+    SUPPORTED_EXTENSIONS,
+)
+
+__all__ = [
+    "CLASS_NAMES",
+    "DATASET_DIR",
+    "DATASET_IMAGE_DIR",
+    "DATASET_LABEL_DIR",
+    "DATASET_YAML",
+    "DEFAULT_MODEL_WEIGHTS",
+    "PROJECT_ROOT",
+    "SUPPORTED_EXTENSIONS",
+]

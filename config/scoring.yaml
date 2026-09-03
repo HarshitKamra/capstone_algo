@@ -1,0 +1,21 @@
+# Poster Effectiveness Score (PES) configuration
+# Weights must sum to 100 for interpretability.
+
+pes_weights:
+  Product Attention: 25
+  CTA Visibility: 20
+  Headline Engagement: 20
+  Attention Balance: 15
+  Visual Hierarchy: 20
+
+ideal_attention_ranges:
+  Product: [30, 45]
+  Headline: [15, 30]
+  CTA: [10, 20]
+  Price: [5, 15]
+  logo: [3, 10]
+
+pes_categories:
+  excellent: 80
+  good: 65
+  average: 50

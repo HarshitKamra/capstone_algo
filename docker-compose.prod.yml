@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  app:
+    image: ${DOCKER_IMAGE:-capstone-poster:latest}
+    ports:
+      - "80:8501"
+    restart: unless-stopped
+    environment:
+      - MODEL_WEIGHTS=${MODEL_WEIGHTS}
+      - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M

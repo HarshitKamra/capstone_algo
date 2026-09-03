@@ -1,0 +1,29 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "graph",
+      "title": "Inference Requests",
+      "targets": [
+        { "expr": "capstone_inference_requests_total", "legendFormat": "inference_requests" }
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Gaze Analysis Requests",
+      "targets": [
+        { "expr": "capstone_gaze_analysis_requests_total", "legendFormat": "gaze_requests" }
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Processing Seconds",
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(capstone_processing_seconds_bucket[5m])) by (le))", "legendFormat": "p95_processing" }
+      ]
+    }
+  ],
+  "title": "Capstone Poster Metrics Example"
+}

@@ -2,3 +2,10 @@ opencv-python
 matplotlib
 pillow
 numpy
+pandas
+pytest
+streamlit
+prometheus-client
+playwright
+pytest-playwright
+reportlab
